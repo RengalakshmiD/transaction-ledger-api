@@ -1,0 +1,494 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Transaction Ledger API",
+    "version": "1.0.0",
+    "description": "Production-grade backend REST API for a transaction ledger system featuring atomic balance updates, row-level locking concurrency protection, strict validation, and idempotent transactions."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Service health and uptime"
+    },
+    {
+      "name": "Accounts",
+      "description": "Account management and balance retrieval"
+    },
+    {
+      "name": "Transactions",
+      "description": "Append-only immutable credit/debit transactions and history"
+    },
+    {
+      "name": "Transfers",
+      "description": "Bonus: Atomic inter-account money transfer"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health check",
+        "description": "Returns current server health status and timestamp",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "healthy",
+                  "timestamp": "2026-10-27T10:00:00.000Z",
+                  "service": "Transaction Ledger API"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts": {
+      "get": {
+        "tags": ["Accounts"],
+        "summary": "List All Accounts",
+        "description": "Returns a list of all created accounts in the ledger.",
+        "responses": {
+          "200": {
+            "description": "List of accounts retrieved successfully",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "count": 2,
+                  "data": [
+                    {
+                      "id": "819da98d-e590-4aee-8dae-5892b14ce874",
+                      "name": "Alice Smith",
+                      "balance": 100,
+                      "created_at": "2026-10-27T10:00:00.000Z"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Accounts"],
+        "summary": "Create Account",
+        "description": "Creates a new ledger account. Initial balance is strictly 0.00 (tamper-proof against client payloads).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAccountRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created successfully",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Account created successfully",
+                  "data": {
+                    "id": "e304f580-0a25-4c07-ba71-6c12ce483754",
+                    "name": "Alice Smith",
+                    "balance": 0,
+                    "created_at": "2026-10-27T10:00:00.000Z"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (missing or empty name)",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{accountId}/balance": {
+      "get": {
+        "tags": ["Accounts"],
+        "summary": "Get Account Balance",
+        "description": "Returns the real-time balance of an existing account.",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The unique UUID of the account"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current balance retrieved successfully",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "data": {
+                    "account_id": "e304f580-0a25-4c07-ba71-6c12ce483754",
+                    "balance": 150.5
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account does not exist",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid UUID format"
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{accountId}/transactions": {
+      "post": {
+        "tags": ["Transactions"],
+        "summary": "Add Transaction",
+        "description": "Appends an immutable credit or debit transaction and atomically updates the account balance. Rejects duplicates per account with 409 Conflict.",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTransactionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Transaction applied and balance updated",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Transaction processed successfully",
+                  "data": {
+                    "id": "1d8b7461-9c60-4966-9bb2-0b81ea199462",
+                    "account_id": "e304f580-0a25-4c07-ba71-6c12ce483754",
+                    "type": "credit",
+                    "amount": 100,
+                    "description": "Initial deposit",
+                    "reference_id": "DEP-001",
+                    "created_at": "2026-10-27T10:05:00.000Z"
+                  },
+                  "account_balance": 100
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Duplicate reference_id for this account",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "error": {
+                    "code": "DUPLICATE_TRANSACTION",
+                    "message": "Transaction with reference_id 'DEP-001' already exists for account 'e304f580-0a25-4c07-ba71-6c12ce483754'."
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Insufficient balance for debit",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "error": {
+                    "code": "INSUFFICIENT_BALANCE",
+                    "message": "Insufficient funds. Current balance is 70.00, but tried to debit 150.00."
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account not found"
+          },
+          "400": {
+            "description": "Validation error"
+          }
+        }
+      },
+      "get": {
+        "tags": ["Transactions"],
+        "summary": "Get Transaction History",
+        "description": "Returns paginated list of transactions for an account sorted latest-first, with optional type filtering.",
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["credit", "debit"]
+            },
+            "description": "Filter by transaction type"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            },
+            "description": "Page number (defaults to 1)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Number of records per page (defaults to 10, max 100)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated transaction history returned",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "data": [
+                    {
+                      "id": "1d8b7461-9c60-4966-9bb2-0b81ea199462",
+                      "account_id": "e304f580-0a25-4c07-ba71-6c12ce483754",
+                      "type": "credit",
+                      "amount": 100,
+                      "description": "Initial deposit",
+                      "reference_id": "DEP-001",
+                      "created_at": "2026-10-27T10:05:00.000Z"
+                    }
+                  ],
+                  "pagination": {
+                    "current_page": 1,
+                    "page_size": 10,
+                    "total_records": 1,
+                    "total_pages": 1
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account not found"
+          }
+        }
+      }
+    },
+    "/api/v1/transfers": {
+      "post": {
+        "tags": ["Transfers"],
+        "summary": "Transfer Money (Bonus)",
+        "description": "Atomically transfers funds from one account to another, creating matching debit and credit entries with deadlock protection.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Funds transferred successfully",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Funds transferred successfully",
+                  "data": {
+                    "reference_id": "XFER-101",
+                    "amount": 35,
+                    "from_account": {
+                      "id": "e304f580-0a25-4c07-ba71-6c12ce483754",
+                      "previous_balance": 95,
+                      "new_balance": 60,
+                      "transaction_id": "a98a0c21-cfcf-4835-97b7-e23a315998a1"
+                    },
+                    "to_account": {
+                      "id": "b785d033-6cfc-4022-8616-fc0572b83445",
+                      "previous_balance": 50,
+                      "new_balance": 85,
+                      "transaction_id": "42bfb373-cff9-497d-aa51-3ae0eaae0f09"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Source and destination accounts are the same, or invalid amount"
+          },
+          "404": {
+            "description": "One or both accounts do not exist"
+          },
+          "409": {
+            "description": "Transfer with this reference_id already executed"
+          },
+          "422": {
+            "description": "Source account has insufficient balance"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateAccountRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Alice Smith",
+            "description": "Account holder name"
+          }
+        }
+      },
+      "CreateTransactionRequest": {
+        "type": "object",
+        "required": ["type", "amount", "reference_id"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["credit", "debit"],
+            "example": "credit"
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 0.01,
+            "example": 100.0,
+            "description": "Amount with at most 2 decimal places"
+          },
+          "reference_id": {
+            "type": "string",
+            "example": "DEP-001",
+            "description": "Unique transaction reference per account"
+          },
+          "description": {
+            "type": "string",
+            "example": "Salary deposit",
+            "description": "Optional notes"
+          }
+        }
+      },
+      "TransferRequest": {
+        "type": "object",
+        "required": ["from_account_id", "to_account_id", "amount", "reference_id"],
+        "properties": {
+          "from_account_id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "e304f580-0a25-4c07-ba71-6c12ce483754"
+          },
+          "to_account_id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "b785d033-6cfc-4022-8616-fc0572b83445"
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 0.01,
+            "example": 35.0
+          },
+          "reference_id": {
+            "type": "string",
+            "example": "XFER-101"
+          },
+          "description": {
+            "type": "string",
+            "example": "Rent split"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": false
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "example": "INSUFFICIENT_BALANCE"
+              },
+              "message": {
+                "type": "string",
+                "example": "Insufficient funds. Current balance is 70.00, but tried to debit 150.00."
+              },
+              "details": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
